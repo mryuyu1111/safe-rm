@@ -1,0 +1,136 @@
+{\rtf1\ansi\ansicpg1252\cocoartf1187\cocoasubrtf390
+{\fonttbl\f0\fswiss\fcharset0 Helvetica;}
+{\colortbl;\red255\green255\blue255;}
+\margl1440\margr1440\vieww10800\viewh8400\viewkind0
+\pard\tx720\tx1440\tx2160\tx2880\tx3600\tx4320\tx5040\tx5760\tx6480\tx7200\tx7920\tx8640\pardirnatural
+
+\f0\fs24 \cf0 #!/bin/bash\
+\
+function errors()\
+\{\
+        if [ $# -eq 0 ]\
+        then\
+                cat<<-noArgs\
+                safe_rm_restore: missing operand\
+                Try 'safe_rm_restore --help' for more information.\
+                noArgs\
+\
+                exit 1\
+        elif [[ $1 = "doesNotExist" ]]\
+        then\
+                echo safe_rm_restore: "cannot restore " $2: No such file or directory\
+                exit 1\
+        elif [[ $1 = "not removed" ]]\
+        then\
+                echo The file has not been removed.\
+\
+        fi\
+\}\
+\
+function restore()\
+\{\
+        local oPath=$1\
+        local eachfile=$2\
+        local baseName=$3\
+\
+        mv $recycledBin/"$eachfile" $oPath/"$baseName"\
+        restoreInfo "$eachfile"\
+\}\
+\
+function overwrite()\
+\{\
+        local oPath=$1\
+        local eachfile=$2\
+        local baseName=$3\
+\
+        read -p "Do you want to overwrite '$oPath/$baseName'?" answer\
+\
+        if [[ $answer = [yY] ]]\
+        then\
+                rm -r "$oPath"/"$baseName"\
+                restore "$oPath" "$eachfile" "$baseName"\
+                restoreInfo "$eachfile"\
+\
+        else\
+                errors "not removed"\
+        fi\
+\}\
+\
+function restoreInfo()\
+\{\
+        local eachfile=$1\
+\
+        cat ~/.restore.info | grep -v $eachfile > ~/.restore2.info\
+        cat ~/.restore2.info > ~/.restore.info\
+        rm ~/.restore2.info\
+\}\
+\
+function createPath\
+\{\
+        local oPath=$1\
+        local currentDir=$2\
+\
+        if [[ ! -e "$oPath" ]]\
+        then\
+                createPath "$(dirname "$oPath")" "$(basename "$oPath")"\
+        else\
+\
+\
+                mkdir "$oPath"/"$currentDir"\
+        fi\
+\}\
+\
+#check if the CMCFG exists\
+checkRMCFG=$(env | grep ^RMCFG | cut -d"=" -f1)\
+\
+if [[ $checkRMCFG ]]\
+then\
+        recycledBin=$(env | grep ^RMCFG | cut -d"=" -f2)\
+\
+elif [[ -e ~/.rm.cfg ]]\
+then\
+        recycledBin=$(head -1 ~/.rm.cfg)\
+\
+#check if there is ~/deleted and make one\
+else\
+        recycledBin=~/deleted\
+fi\
+\
+\
+if [ $# -gt 0 ]\
+then\
+        for eachfile in $@\
+        do\
+                #check if the file/directory exists in the recycle bin\
+                if [[ ! -e "$recycledBin"/"$eachfile" ]]\
+                then\
+                        errors "doesNotExist" "$eachfile"\
+                fi\
+\
+\
+\
+                baseName=$(basename $(cat ~/.restore.info | grep -w "$eachfile" | cut -d":" -f2))\
+                originalPath=$(dirname $(cat ~/.restore.info | grep -w "$eachfile" | cut -d":" -f2))\
+                count=0\
+\
+                while [[ ! -e "$originalPath" ]]\
+                do\
+                        createPath "$originalPath" "$baseName"\
+                done\
+\
+                #check if the file/directory exists in the original path\
+                if [[ ! -e "$originalPath"/"$baseName" && -e "$recycledBin"/"$eachfile" ]]\
+                then\
+                        restore "$originalPath" "$eachfile" "$baseName"\
+\
+                #prompt the user whether to overwrite the existed file or not\
+                elif [[ -e "$originalPath"/"$baseName" && -e "$recycledBin"/"$eachfile" ]]\
+                then\
+                        overwrite "$originalPath" "$eachfile" "$baseName"\
+\
+                fi\
+        done\
+else\
+        errors\
+fi\
+}

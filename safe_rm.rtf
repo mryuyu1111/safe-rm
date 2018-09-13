@@ -1,0 +1,269 @@
+{\rtf1\ansi\ansicpg1252\cocoartf1187\cocoasubrtf390
+{\fonttbl\f0\fswiss\fcharset0 Helvetica;}
+{\colortbl;\red255\green255\blue255;}
+\margl1440\margr1440\vieww10800\viewh8400\viewkind0
+\pard\tx720\tx1440\tx2160\tx2880\tx3600\tx4320\tx5040\tx5760\tx6480\tx7200\tx7920\tx8640\pardirnatural
+
+\f0\fs24 \cf0 #!/bin/bash\
+\
+#function for error displays\
+function errors()\
+\{\
+        local err=$1\
+        local filename=$2\
+\
+        if [[ $err = "no args" ]]\
+        then\
+                cat<<-noArgs\
+                safe_rm: missing operand\
+                Try 'safe_rm --help' for more information.\
+                noArgs\
+\
+                exit 1\
+        elif [[ $err = "doesNotExist" ]]\
+        then\
+                cat<<-doesNotExist\
+                safe_rm: cannot remove '$filename': No such file or directory\
+                doesNotExist\
+        else\
+                echo "safe_rm: cannot remove '$filename': Is a directory"\
+        fi\
+\}\
+\
+#function that deals with each removal\
+function eachRm()\
+\{\
+        local filename=$1\
+        local oPath=$2\
+        local filetype=$(ls -l $(dirname $(readlink -f "$filename")) | grep -w "$filename"$ | cut -c 1)\
+        local inode=$(ls -i $oPath | grep -w "$filename"$ | cut -d" " -f1)\
+\
+        if [[ ! -e $oPath/"$filename" ]]\
+        then\
+                        errors "doesNotExist" "$filename"\
+\
+        elif [[ -d $oPath/"$filename" ]]\
+        then\
+                if $recursive\
+                then\
+                        rec "$filename" "$oPath" "$inode"\
+                else\
+                        errors "isAdirectory" "$filename"\
+                fi\
+\
+        else\
+                movefile "$oPath" "$filename" "$inode" "$filetype"\
+        fi\
+\}\
+\
+function moving()\
+\{\
+        local oPath=$1\
+        local filename=$2\
+        local inode=$3\
+        local filetype=$4\
+\
+        mv $oPath/"$filename" $recycledBin/"$filename""_"$inode\
+        echo "$filename""_"$inode":"$oPath/"$filename" >> ~/.restore.info\
+\
+        if $verbose\
+        then\
+                ver "$filename" "$filetype"\
+        fi\
+\}\
+\
+function movefile()\
+\{\
+        local oPath=$1\
+        local filename=$2\
+        local inode=$3\
+        local filetype=$4\
+\
+        #check if it is a file or directory, file's path\
+        if [[ "$filetype" != d ]]\
+        then    #check -i\
+                if $interactive\
+                then\
+                        if int "$filename" "$filetype" "$oPath"\
+                        then    #want to delete file\
+                                moving "$oPath" "$filename" "$inode" "$filetype"\
+                        fi\
+                else    #-i is not on, go ahead and delete file\
+                        moving "$oPath" "$filename" "$inode" "$filetype"\
+                fi\
+\
+        else    #directory's path\
+                if $interactive\
+                then\
+                        if int "$filename" "$filetype" "$oPath"\
+                        then    #want to delete directory\
+                                moving "$oPath" "$filename" "$inode" "$filetype"\
+                        fi\
+\
+                else    #-i not on\
+                        moving "$oPath" "$filename" "$inode" "$filetype"\
+                fi\
+\
+        fi\
+\
+\}\
+\
+function rec()\
+\{\
+        local oPath=$2\
+        local filename=$1\
+        local inode=$3\
+\
+        #check if the directory is empty, NOT EMPTY\
+        if [[ $(ls -A $oPath/"$filename") ]]\
+        then\
+                if $interactive\
+                then\
+                        read -p "safe_rm: descend into directory '$filename'? " ans\
+\
+                        if [[ $ans = [yY] ]]\
+                        then\
+                                #directory is not empty\
+                                for innerFile in $(ls $oPath/"$filename")\
+                                do\
+                                        eachRm "$innerFile" "$(dirname $(readlink -f "$oPath"/"$filename"/"$innerFile"))"\
+                                done\
+\
+                                if [[ $(ls -A $oPath/"$filename") ]]\
+                                then\
+                                        read -p "safe_rm: remove directory '$filename'? " ans\
+\
+                                        if [[ $ans = [yY] ]]\
+                                        then\
+                                                echo "safe_rm: cannot remove '$filename': Directory not empty"\
+                                        fi\
+                                else\
+                                        eachRm "$filename" "$oPath"\
+                                fi\
+                        fi\
+                else\
+                        for innerFile in $(ls $oPath/"$filename")\
+                        do\
+                                eachRm "$(basename "$innerFile")" "$(dirname $(readlink -f "$oPath"/"$filename"/"$innerFile"))"\
+                        done\
+\
+                        eachRm "$filename" "$oPath"\
+                fi\
+        else    #directory is empty\
+                movefile "$oPath" "$filename" "$inode" "d"\
+        fi\
+\}\
+\
+function ver()\
+\{\
+        local filename=$1\
+        local filetype=$2\
+\
+        if [[ "$filetype" = d ]]\
+        then\
+                echo "removed directory: '$filename'"\
+\
+        else\
+                echo "removed '$filename'"\
+        fi\
+\}\
+\
+function int()\
+\{\
+        local filename=$1\
+        local filetype=$2\
+        local oPath=$3\
+\
+        if [[ "$filetype" != "d" ]]\
+        then    #check if it is empty file\
+                if [[ $(du -b $oPath/"$filename" | cut -n -f1) -eq 0 ]]\
+                then\
+                        read -p "safe_rm: remove regular empty file '$filename'? " ans\
+\
+                        if [[ $ans = [yY] ]]\
+                        then\
+                                return 0\
+                        else\
+                                return 1\
+                        fi\
+                else    #it is not EMPTY file\
+                        read -p "safe_rm: remove regular file '$filename'? " ans\
+\
+                        if [[ $ans = [yY] ]]\
+                        then\
+                                return 0\
+                        else\
+                                return 1\
+                        fi\
+                fi\
+        else\
+                read -p "safe_rm: remove directory '$filename'? " ans\
+\
+                if [[ $ans = [yY] ]]\
+                then\
+                        return 0\
+                else\
+                        return 1\
+                fi\
+        fi\
+\}\
+\
+\
+#getopts\
+interactive=false\
+recursive=false\
+verbose=false\
+\
+while getopts :ivrR opt\
+do\
+        case $opt in\
+                i) interactive=true ;;\
+                r|R) recursive=true ;;\
+                v) verbose=true ;;\
+                \\?) echo "Please try again - no option" $OPTARG\
+                    exit 1 ;;\
+        esac\
+done\
+\
+shift $(($OPTIND -1))\
+\
+\
+\
+#check if the CMCFG exists\
+checkRMCFG=$(env | grep ^RMCFG | cut -d"=" -f1)\
+\
+if [[ $checkRMCFG ]]\
+then\
+        recycledBin=$(env | grep ^RMCFG | cut -d"=" -f2)\
+\
+elif [[ -e ~/.rm.cfg ]]\
+then\
+        recycledBin=$(head -1 ~/.rm.cfg)\
+\
+#check if there is ~/deleted and make one\
+else\
+        if [[ ! -d ~/deleted ]]\
+        then\
+                mkdir ~/deleted\
+                recycledBin=~/deleted\
+        else\
+                recycledBin=~/deleted\
+        fi\
+fi\
+\
+\
+\
+\
+\
+#start looping the args\
+if [ $# -gt 0 ]\
+then\
+        for eachfile in $@\
+        do\
+                originalPath=$(dirname $(readlink -f "$eachfile"))\
+                eachRm "$(basename "$eachfile")" "$originalPath"\
+        done\
+else\
+        errors "no args"\
+fi\
+}
